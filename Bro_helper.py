@@ -8,7 +8,7 @@ from flask_socketio import SocketIO, emit, join_room
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'секрет!'
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 
 
 class GameManager:
@@ -1125,3 +1125,4 @@ if __name__ == '__main__':
     print("Запуск платформы для викторин на Flask...")
     print("Сервер доступен по адресу http://localhost:5000")
     socketio.run(app, debug=True, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)
+

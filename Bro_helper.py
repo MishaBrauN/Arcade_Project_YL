@@ -133,7 +133,6 @@ class GameManager:
 
 game_manager = GameManager()
 
-
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="ru">
@@ -155,6 +154,7 @@ HTML_TEMPLATE = """
         .btn-success { background: #28a745; }
         .btn-danger { background: #dc3545; }
         .btn-warning { background: #ffc107; color: #212529; }
+        .btn-info { background: #17a2b8; }
         .input-group { margin-bottom: 15px; }
         label { display: block; margin-bottom: 5px; color: #666; font-weight: 600; }
         input, textarea, select { width: 100%; padding: 10px; border: 2px solid #e1e1e1; border-radius: 8px; font-size: 16px; }
@@ -183,7 +183,8 @@ HTML_TEMPLATE = """
         .auto-next-timer { font-size: 24px; text-align: center; margin: 20px 0; padding: 15px; background: #17a2b8; color: white; border-radius: 10px; }
         .error-message { color: #dc3545; background: #f8d7da; border: 1px solid #f5c6cb; padding: 10px; border-radius: 5px; margin: 10px 0; }
         .correct-answer-marker { background-color: #d4edda; border-left: 5px solid #28a745; padding: 10px; margin: 10px 0; border-radius: 5px; }
-        #studentView, #teacherView, #createGameView, #joinGameView, #waitingView, #questionView, #resultsView, #gameOverView { display: none; }
+        .csv-note { font-size: 12px; color: #666; margin-top: 5px; }
+        #studentView, #teacherView, #createGameView, #joinGameView, #waitingView, #questionView, #resultsView, #gameOverView, #gameHostView { display: none; }
     </style>
 </head>
 <body>
@@ -211,6 +212,23 @@ HTML_TEMPLATE = """
             <!-- Создание игры -->
             <div id="createGameView">
                 <h2>Создание новой игры</h2>
+
+                <!-- НОВАЯ КНОПКА: Импорт из CSV -->
+                <div style="margin-bottom: 20px; padding: 15px; background: #e8f4fd; border-radius: 10px;">
+                    <h3 style="margin-top: 0;">📊 Импорт вопросов из CSV</h3>
+                    <p style="margin-bottom: 10px;">Формат файла: Вопрос,Вариант А,Вариант Б,Вариант В,Вариант Г,Время(сек)</p>
+                    <div>
+                        <button class="btn btn-info" onclick="document.getElementById('csvFile').click()">
+                            📥 Выбрать CSV файл
+                        </button>
+                        <input type="file" id="csvFile" accept=".csv, .txt" style="display:none" onchange="importFromCSV(event)">
+                        <button class="btn btn-secondary" onclick="downloadTemplate()">
+                            📋 Скачать пример CSV
+                        </button>
+                    </div>
+                    <div id="csvImportStatus" class="csv-note" style="margin-top: 10px;"></div>
+                </div>
+
                 <div class="input-group">
                     <label>Название игры</label>
                     <input type="text" id="gameTitle" placeholder="Введите название" value="Математическая викторина">
@@ -375,10 +393,10 @@ HTML_TEMPLATE = """
                 document.getElementById('questionCounter').textContent = 'В: 0/0';
             }
 
-            // При открытии экрана создания игры очищаем контейнер и добавляем один вопрос
             if (viewId === 'createGameView') {
                 document.getElementById('questionsContainer').innerHTML = '';
                 addQuestion();
+                document.getElementById('csvImportStatus').innerHTML = '';
             }
         }
 
@@ -424,6 +442,126 @@ HTML_TEMPLATE = """
                 <button class="btn btn-danger" onclick="this.parentElement.remove()">❌ Удалить</button>
             `;
             container.appendChild(div);
+        }
+
+        // НОВАЯ ФУНКЦИЯ: Импорт из CSV
+        function importFromCSV(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const status = document.getElementById('csvImportStatus');
+            status.innerHTML = '⏳ Чтение файла...';
+
+            const reader = new FileReader();
+
+            reader.onload = function(e) {
+                try {
+                    const content = e.target.result;
+                    const lines = content.split(/\\r?\\n/);
+
+                    // Определяем разделитель (запятая или точка с запятой)
+                    let delimiter = ',';
+                    if (lines[0] && lines[0].includes(';')) {
+                        delimiter = ';';
+                    }
+
+                    const questions = [];
+
+                    // Проходим по всем строкам
+                    for (let i = 0; i < lines.length; i++) {
+                        const line = lines[i].trim();
+                        if (!line) continue;
+
+                        // Пропускаем строку с заголовками если есть
+                        if (i === 0 && line.toLowerCase().includes('вопрос')) continue;
+
+                        // Разбиваем строку
+                        let values;
+                        if (delimiter === ',') {
+                            // Простой парсинг для CSV
+                            values = line.split(',').map(v => v.trim());
+                        } else {
+                            values = line.split(';').map(v => v.trim());
+                        }
+
+                        // Убираем кавычки если есть
+                        values = values.map(v => v.replace(/^"(.*)"$/, '$1'));
+
+                        if (values.length >= 5) {
+                            const question = {
+                                text: values[0] || 'Вопрос',
+                                options: [
+                                    values[1] || 'Вариант А',
+                                    values[2] || 'Вариант Б',
+                                    values[3] || 'Вариант В',
+                                    values[4] || 'Вариант Г'
+                                ],
+                                correct_answer: 0,
+                                time_limit: values[5] ? parseInt(values[5]) || 30 : 30
+                            };
+                            questions.push(question);
+                        }
+                    }
+
+                    if (questions.length === 0) {
+                        throw new Error('Не найдено вопросов в файле');
+                    }
+
+                    // Очищаем существующие вопросы
+                    document.getElementById('questionsContainer').innerHTML = '';
+
+                    // Добавляем вопросы из CSV
+                    questions.forEach((q, index) => {
+                        const div = document.createElement('div');
+                        div.className = 'card';
+                        const i = index + 1;
+
+                        div.innerHTML = `
+                            <h3>Вопрос ${i}</h3>
+                            <div class="input-group"><label>Текст вопроса</label><textarea id="question_${i}">${q.text}</textarea></div>
+                            <div class="input-group"><label>Вариант 1 (правильный)</label><input type="text" id="option1_${i}" value="${q.options[0]}"></div>
+                            <div class="input-group"><label>Вариант 2</label><input type="text" id="option2_${i}" value="${q.options[1]}"></div>
+                            <div class="input-group"><label>Вариант 3</label><input type="text" id="option3_${i}" value="${q.options[2]}"></div>
+                            <div class="input-group"><label>Вариант 4</label><input type="text" id="option4_${i}" value="${q.options[3]}"></div>
+                            <div class="input-group"><label>Время на вопрос (секунд)</label><input type="number" id="time_${i}" value="${q.time_limit}" min="5" max="120"></div>
+                            <button class="btn btn-danger" onclick="this.parentElement.remove()">❌ Удалить</button>
+                        `;
+
+                        document.getElementById('questionsContainer').appendChild(div);
+                    });
+
+                    status.innerHTML = `✅ Загружено ${questions.length} вопросов из CSV`;
+
+                    // Очищаем input
+                    event.target.value = '';
+
+                } catch (error) {
+                    status.innerHTML = '❌ Ошибка: ' + error.message;
+                    console.error(error);
+                }
+            };
+
+            reader.readAsText(file, 'UTF-8');
+        }
+
+        // НОВАЯ ФУНКЦИЯ: Скачать шаблон CSV
+        function downloadTemplate() {
+            const template = [
+                'Вопрос,Вариант А,Вариант Б,Вариант В,Вариант Г,Время',
+                '"Столица Франции?",Париж,Лондон,Берлин,Мадрид,30',
+                '"Сколько будет 2 + 2?",3,4,5,6,20',
+                '"Самая высокая гора?",Эверест,К2,Канченджанга,Лхоцзе,25'
+            ].join('\\n');
+
+            const blob = new Blob(['\\uFEFF' + template], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'template_questions.csv';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
         }
 
         function createGame() {
@@ -700,9 +838,7 @@ HTML_TEMPLATE = """
             document.getElementById('progressFill').style.width = total ? `${(received/total)*100}%` : '0%';
         }
 
-        // Функция обновления списка игроков у учителя
         function updatePlayersList(players) {
-            // Фильтруем только подключенных игроков
             const connectedPlayers = players.filter(p => p.connected);
             const list = document.getElementById('playersList');
             list.innerHTML = '';
@@ -715,7 +851,6 @@ HTML_TEMPLATE = """
             document.getElementById('playerCount').textContent = connectedPlayers.length;
         }
 
-        // Функция обновления списка игроков на экране ожидания
         function updateWaitingPlayers(players) {
             const connectedPlayers = players.filter(p => p.connected);
             const div = document.getElementById('waitingPlayers');
@@ -776,7 +911,6 @@ HTML_TEMPLATE = """
             }
         }
 
-        // При загрузке страницы добавляем один вопрос
         window.onload = function() {
             document.getElementById('questionsContainer').innerHTML = '';
             addQuestion();
@@ -785,7 +919,6 @@ HTML_TEMPLATE = """
 </body>
 </html>
 """
-
 
 
 @app.route('/')
@@ -980,7 +1113,6 @@ def handle_submit_answer(data):
     }, room=game_code)
 
 
-# ---------- Фоновые задачи ----------
 def show_question_to_all(game_code):
     game = game_manager.get_game(game_code)
     if not game: return
@@ -1125,4 +1257,3 @@ if __name__ == '__main__':
     print("Запуск платформы для викторин на Flask...")
     print("Сервер доступен по адресу http://localhost:5000")
     socketio.run(app, debug=True, host='0.0.0.0', port=5000, allow_unsafe_werkzeug=True)
-
